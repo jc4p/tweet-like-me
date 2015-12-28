@@ -17,13 +17,13 @@ zero_symbol = vocab_size - 1
 dimension = 250
 base_lr = 0.15
 clip_gradients = 10
-i_temperature = 1.5
+i_temperature = 1.2
+dropout_rate = 0.30
 
 parser = apollocaffe.base_parser()
 args = parser.parse_args()
 apollocaffe.set_device(args.gpu)
 apollocaffe.set_random_seed(0)
-
 
 i_temp_x = T.fmatrix('x')
 i_temp_z = i_temp_x * i_temperature
@@ -34,7 +34,9 @@ def get_data():
     epoch = 0
     while True:
         with open('tweets.txt', 'r') as f:
-            for x in f.readlines():
+            all_lines = f.readlines()
+            numpy.random.shuffle(all_lines)
+            for x in all_lines:
                 if len(x) > 10:  # Some arbitary limit to ignore blank and non-sensical tweets
                     yield x
         print('epoch %s finished' % epoch)
@@ -86,9 +88,9 @@ def forward(net, sentence_batches):
                 'lstm_forget_gate', 'lstm_output_gate'],
             tops=['lstm%d_hidden' % step, 'lstm%d_mem' % step],
             num_cells=dimension))
-        net.f(Dropout('dropout%d' % step, 0.16,
+        net.f(Dropout('dropout%d' % step, dropout_rate,
             bottoms=['lstm%d_hidden' % step]))
-        
+
         net.f(NumpyData('label%d' % step, sentence_batch[:, step]))
         net.f(InnerProduct('ip%d' % step, vocab_size,
             bottoms=['dropout%d' % step],
@@ -126,7 +128,7 @@ def eval_forward(net):
             param_names=['lstm_input_value', 'lstm_input_gate',
                 'lstm_forget_gate', 'lstm_output_gate'],
             tops=['lstm_hidden_next', 'lstm_mem_next']))
-        net.f(Dropout('dropout', 0.16, bottoms=['lstm_hidden_next']))
+        net.f(Dropout('dropout', dropout_rate, bottoms=['lstm_hidden_next']))
 
         net.f(InnerProduct('ip', vocab_size, bottoms=['dropout'],
             param_names=['softmax_ip_weights', 'softmax_ip_bias']))
