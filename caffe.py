@@ -61,10 +61,10 @@ def get_data_batch():
         yield batch
 
 def pad_batch(sentence_batch):
-    max_len = max(len(x) for x in sentence_batch)
+    max_len = 140
     result = []
     for sentence in sentence_batch:
-        chars = [min(ord(c), 140) for c in sentence] 
+        chars = [min(ord(c), max_len) for c in sentence]
         result.append(chars + [zero_symbol] * (max_len - len(sentence)))
     return np.array(result)
 

@@ -4,3 +4,4 @@ data/tweets.csv
 Thumbs.db
 .DS_Store
 *.pyc
+keras
