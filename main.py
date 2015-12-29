@@ -1,6 +1,7 @@
 # From the ApolloCaffee samples:
 # https://github.com/Russell91/apollocaffe/blob/769011/examples/apollocaffe/char_model/char_model.py
 
+from collections import Counter
 import numpy as np
 import os
 import json
@@ -17,8 +18,8 @@ zero_symbol = vocab_size - 1
 dimension = 250
 base_lr = 0.15
 clip_gradients = 10
-i_temperature = 1.2
-dropout_rate = 0.30
+i_temperature = 1.3
+dropout_rate = 0.15
 
 parser = apollocaffe.base_parser()
 args = parser.parse_args()
@@ -30,12 +31,18 @@ i_temp_z = i_temp_x * i_temperature
 i_temp_f = theano.function([i_temp_x], i_temp_z)
 
 
+def get_most_common_first_words():
+    with open('tweets.txt', 'r') as f:
+        all_lines = f.readlines()
+    first_words = [x.split(" ")[0].lower() for x in all_lines if " " in x]
+    return [x[0] for x in Counter(first_words).most_common(50)]
+
 def get_data():
     epoch = 0
     while True:
         with open('tweets.txt', 'r') as f:
             all_lines = f.readlines()
-            numpy.random.shuffle(all_lines)
+            np.random.shuffle(all_lines)
             for x in all_lines:
                 if len(x) > 10:  # Some arbitary limit to ignore blank and non-sensical tweets
                     yield x
@@ -103,18 +110,27 @@ def softmax_choice(data):
     probs /= probs.sum()
     return np.random.choice(range(len(probs)), p=probs)
 
-def eval_forward(net):
+def eval_forward(net, prime=None):
     net.clear_forward()
     output_words = []
     net.f(NumpyData('lstm_hidden_prev', np.zeros((1, dimension))))
     net.f(NumpyData('lstm_mem_prev', np.zeros((1, dimension))))
     length = 140
-    for step in range(length):
+
+    first_step = 0
+    if prime:
+        for c in prime:
+            output_words.append(ord(c))
+        first_step = len(prime)
+
+    for step in range(first_step, length):
+        if step > 130 and output_words and output_words[-1] == ord(' '):
+            break
         net.clear_forward()
         net.f(NumpyData('word', [0]))
         prev_hidden = 'lstm_hidden_prev'
         prev_mem = 'lstm_mem_prev'
-        if step == 0:
+        if step == 0 or (prime and step == len(prime)):
             output = ord(' ')
         else:
             output = softmax_choice(net.blobs['softmax'].data)
@@ -141,7 +157,7 @@ def eval_forward(net):
     print ''.join([chr(x) for x in output_words])
 
 net = apollocaffe.ApolloNet()
-net.load('tweets.caffemodel')
+net.load('tweets2.caffemodel')
 sentence_batches = get_data_batch()
 
 forward(net, sentence_batches)
@@ -150,11 +166,20 @@ train_loss_hist = []
 display = 50
 loggers = [apollocaffe.loggers.TrainLogger(display),
     apollocaffe.loggers.SnapshotLogger(1000, '/tmp/char')]
-for i in range(10000):
+
+# To display 10 samples from the trained net:
+# first_words = get_most_common_first_words()
+# for i in range(20):
+#     eval_forward(net, np.random.choice(first_words) + " " + np.random.choice(first_words))
+#     print '---'
+
+
+# To train:
+for i in range(5000):
     forward(net, sentence_batches)
     train_loss_hist.append(net.loss)
     net.backward()
-    lr = (base_lr * (0.8)**(i // 2500))
+    lr = (base_lr * (0.01)**(i // 2500))
     net.update(lr, clip_gradients=clip_gradients)
     for logger in loggers:
         logger.log(i, {'train_loss': train_loss_hist,
@@ -162,4 +187,4 @@ for i in range(10000):
     if i % display == 0:
         eval_forward(net)
     if i % 200:
-        net.save('tweets.caffemodel')
+        net.save('tweets2.caffemodel')
