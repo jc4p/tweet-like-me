@@ -16,15 +16,15 @@ batch_size = 32
 vocab_size = 256
 zero_symbol = vocab_size - 1
 dimension = 250
-base_lr = 0.15
+base_lr = 0.10
 clip_gradients = 10
-i_temperature = 1.3
+i_temperature = 1.5
 dropout_rate = 0.15
 
-parser = apollocaffe.base_parser()
-args = parser.parse_args()
-apollocaffe.set_device(args.gpu)
-apollocaffe.set_random_seed(0)
+# parser = apollocaffe.base_parser()
+# args = parser.parse_args()
+# apollocaffe.set_device(args.gpu)
+# apollocaffe.set_random_seed(0)
 
 i_temp_x = T.fmatrix('x')
 i_temp_z = i_temp_x * i_temperature
@@ -61,7 +61,7 @@ def get_data_batch():
         yield batch
 
 def pad_batch(sentence_batch):
-    max_len = 140
+    max_len = max(len(x) for x in sentence_batch)
     result = []
     for sentence in sentence_batch:
         chars = [min(ord(c), max_len) for c in sentence]
@@ -156,16 +156,20 @@ def eval_forward(net, prime=None):
             net.blobs['lstm_mem_next'].data_tensor)
     print ''.join([chr(x) for x in output_words])
 
-net = apollocaffe.ApolloNet()
-net.load('tweets2.caffemodel')
+# net = apollocaffe.ApolloNet()
+# net.load('tweets2.caffemodel')
 sentence_batches = get_data_batch()
 
-forward(net, sentence_batches)
-train_loss_hist = []
+sentence_batch = pad_batch(next(sentence_batches))
 
-display = 50
-loggers = [apollocaffe.loggers.TrainLogger(display),
-    apollocaffe.loggers.SnapshotLogger(1000, '/tmp/char')]
+print "".join(chr(c) for c in sentence_batch[0] if c != 255)
+print "".join(chr(c) for c in sentence_batch[1] if c != 255)
+# forward(net, sentence_batches)
+# train_loss_hist = []
+
+# display = 50
+# loggers = [apollocaffe.loggers.TrainLogger(display),
+#     apollocaffe.loggers.SnapshotLogger(1000, '/tmp/char')]
 
 # To display 10 samples from the trained net:
 # first_words = get_most_common_first_words()
@@ -175,16 +179,18 @@ loggers = [apollocaffe.loggers.TrainLogger(display),
 
 
 # To train:
-for i in range(5000):
-    forward(net, sentence_batches)
-    train_loss_hist.append(net.loss)
-    net.backward()
-    lr = (base_lr * (0.01)**(i // 2500))
-    net.update(lr, clip_gradients=clip_gradients)
-    for logger in loggers:
-        logger.log(i, {'train_loss': train_loss_hist,
-            'apollo_net': net, 'start_iter': 0})
-    if i % display == 0:
-        eval_forward(net)
-    if i % 200:
-        net.save('tweets2.caffemodel')
+# 4 epochs trained on Mon
+# 6 epochs trained on Tue
+# for i in range(10000):
+#     forward(net, sentence_batches)
+#     train_loss_hist.append(net.loss)
+#     net.backward()
+#     lr = (base_lr * (0.001)**(i // 2500.0))
+#     net.update(lr, clip_gradients=clip_gradients)
+#     for logger in loggers:
+#         logger.log(i + 11400, {'train_loss': train_loss_hist,
+#             'apollo_net': net, 'start_iter': 0})
+#     if i % display == 0:
+#         eval_forward(net)
+#     if i % 200:
+#         net.save('tweets2.caffemodel')

@@ -1,78 +1,97 @@
-from keras.models import Sequential
+from keras.models import Sequential, model_from_json
 from keras.layers.core import Dense, Activation, Dropout
 from keras.layers.embeddings import Embedding
 from keras.layers.recurrent import LSTM
+from keras.optimizers import SGD
+from keras import backend
+from collections import Counter
 import numpy as np
 import sys
+from os.path import isfile
 
-batch_size = 32
-max_len = 140
+batch_size = 128
 vocab_size = 256
-zero_symbol = 0
+net_size = 512
+dropout = 0.30
 
-def get_data():
-    epoch = 0
-    while True:
-        with open('tweets.txt', 'r') as f:
-            all_lines = f.readlines()
-            np.random.shuffle(all_lines)
-            for x in all_lines:
-                if len(x) > 10:  # Some arbitary limit to ignore blank and non-sensical tweets
-                    yield x
-        print('epoch %s finished' % epoch)
-        epoch += 1
+f = open('tweets.txt')
+all_lines = f.readlines()
+f.close()
 
-def get_data_batch():
-    data_iter = get_data()
-    while True:
-        batch = []
-        for i in range(batch_size):
-            d = next(data_iter)
-            while not d:
-                d = next(data_iter)
-            batch.append(d)
-        yield batch
+chars = set(" ".join(all_lines))
+char_indices = dict((c, i) for i, c in enumerate(chars))
+indices_char = dict((i, c) for i, c in enumerate(chars))
 
+max_len = np.max([len(s) for s in all_lines])
 
-def pad_batch(sentence_batch):
-    result = []
-    for sentence in sentence_batch:
-        chars = [min(ord(c), max_len) for c in sentence] 
-        result.append(chars + [zero_symbol] * (max_len - len(sentence)))
-    return np.array(result)
+def get_most_common_first_words():
+    first_words = [x.split(" ")[0].lower() for x in all_lines if " " in x]
+    return [x[0] for x in Counter(first_words).most_common(50)]
 
+def sample(a, temperature=1.0):
+    # helper function to sample an index from a probability array
+    a = np.log(a) / temperature
+    a = np.exp(a) / np.sum(np.exp(a))
+    return np.argmax(np.random.multinomial(1, a, 1))
 
-model = Sequential()
-model.add(Embedding(vocab_size, vocab_size, 250, input_length=max_len, mask_zero=True))
-model.add(LSTM(250, return_sequences=True))
-model.add(Dropout(0.15))
-model.add(LSTM(250, return_sequences=False))
-model.add(Dropout(0.15))
-model.add(Dense(250))
-model.add(Activation('softmax'))
+def get_sample():
+    first_words = get_most_common_first_words()
+    sentence = np.random.choice(first_words)
+    for i in range(100):
+        x = np.zeros((1, max_len, len(chars)))
+        for t, char in enumerate(sentence):
+            x[0, t, char_indices[char]] = 1.
 
-model.compile(loss='categorical_crossentropy', optimizer=SGD(lr=0.05, momentum=0.9))
+        preds = model.predict(x, verbose=0)[0]
+        next_char = indices_char[sample(preds, 1.0)]
+        sentence = sentence[1:] + next_char 
+    return sentence
 
-# This code doesn't run right now since I don't have
-# any X or y yet. I haven't figured out if I should be
-# doing vectorization or using that Embedding layer, and how.
+X = np.zeros((len(all_lines), max_len, len(chars)), dtype=np.bool)
+y = np.zeros((len(all_lines), max_len, len(chars)), dtype=np.bool)
+for i, sentence in enumerate(all_lines):
+    for t, char in enumerate(sentence[:-1]):
+        X[i, t, char_indices[char]] = 1
+    for t, char in enumerate(sentence[1:]):
+        y[i, t, char_indices[char]] = 1
+
+backend = backend._BACKEND
+
+if isfile('keras_' + backend + '_model.json'):
+    model = model_from_json(open('keras_' + backend + '_model.json').read())
+else:
+    model = Sequential()
+    model.add(Embedding(len(chars), net_size, input_length=max_len))
+    model.add(LSTM(net_size, return_sequences=True))
+    #model.add(LSTM(net_size, return_sequences=True, input_shape=(max_len, len(chars))))
+    model.add(Dropout(dropout))
+    model.add(LSTM(net_size, return_sequences=False))
+    model.add(Dropout(dropout))
+    model.add(Dense(len(chars)))
+    model.add(Activation('softmax'))
+
+    # model.compile(loss='categorical_crossentropy', optimizer=SGD(lr=0.05, momentum=0.9))
+    model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
+
+    # f = open('keras_' + backend + '_model.json', 'w')
+    # json_string = model.to_json()
+    # f.write(json_string)
+    # f.close()
+
+first_words = get_most_common_first_words()
 for iteration in range(1, 60):
-    print 'Iteration {}'.format(iteration)
-    model.fit(X, y, batch_size=32, nb_epoch=1)
-
-    start_index = random.randint(0, len(text) - maxlen - 1)
+    print "Iteration {}".format(iteration)
+    model.fit(X, y, batch_size=batch_size, nb_epoch=1)
+    model.save_weights('keras_' + backend + '_weights.h5', overwrite=True)
 
     for diversity in [0.2, 0.5, 1.0, 1.2]:
-        print '----- diversity: {}'.format(diversity)
+        print 'Temp: {}'.format(diversity)
 
-        generated = ''
-        sentence = text[start_index: start_index + maxlen]
-        generated += sentence
-        print '----- Generating with seed: "{}"'.format(sentence)
-        sys.stdout.write(generated)
+        sentence = np.random.choice(first_words) + " "
+        print "Seeding with " + sentence
 
-        for i in range(400):
-            x = np.zeros((1, maxlen, len(chars)))
+        for i in range(100):
+            x = np.zeros((1, max_len, len(chars)))
             for t, char in enumerate(sentence):
                 x[0, t, char_indices[char]] = 1.
 
@@ -80,9 +99,5 @@ for iteration in range(1, 60):
             next_index = sample(preds, diversity)
             next_char = indices_char[next_index]
 
-            generated += next_char
-            sentence = sentence[1:] + next_char
-
-            sys.stdout.write(next_char)
-            sys.stdout.flush()
-        print()
+            sentence += next_char
+        print sentence
