@@ -6,3 +6,5 @@ Thumbs.db
 *.pyc
 tf_env
 models/*
+tf-logs/*
+*.sublime-workspace
